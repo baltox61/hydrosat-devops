@@ -1,0 +1,57 @@
+orgWhitelist: "github.com/YOUR-ORG/*"
+repoConfig: |
+  repos:
+    - id: github.com/YOUR-ORG/YOUR-REPO
+      allowed_overrides: [workflow]
+      allow_custom_workflows: true
+      apply_requirements: [approved, mergeable]
+      workflow: tofu
+
+kubernetes:
+  serviceAccount:
+    create: true
+    name: atlantis
+
+containerSecurityContext:
+  runAsUser: 1000
+
+image:
+  repository: ghcr.io/runatlantis/atlantis
+  tag: v0.28.4
+
+initContainers:
+  - name: setup-tools
+    image: alpine:3.20
+    command: ["/bin/sh","-c"]
+    args:
+      - |
+        set -e
+        wget -qO /usr/local/bin/tofu https://github.com/opentofu/opentofu/releases/download/v1.7.3/tofu_linux_amd64
+        chmod +x /usr/local/bin/tofu
+        mkdir -p /atlantis-data/plugins/bin
+        cp /usr/local/bin/tofu /atlantis-data/plugins/tofu
+    volumeMounts:
+      - name: atlantis-data
+        mountPath: /atlantis-data
+
+extraArgs:
+  - "--tf-distribution=opentofu"
+  - "--gh-user=atlantis-bot"
+  - "--repo-config=/repos.yaml"
+
+extraVolumes:
+  - name: repo-config
+    configMap:
+      name: atlantis-repos
+  - name: atlantis-data
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: repo-config
+    mountPath: /repos.yaml
+    subPath: repos.yaml
+  - name: atlantis-data
+    mountPath: /atlantis-data
+
+service:
+  type: LoadBalancer
