@@ -1,0 +1,9 @@
+# FastAPI and web server
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# AWS SDK for S3 access
+boto3==1.35.75
+
+# Data processing
+python-dateutil==2.9.0

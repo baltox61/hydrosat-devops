@@ -1,0 +1,214 @@
+{
+  "dashboard": {
+    "title": "Dagster Weather Pipeline",
+    "tags": ["dagster", "weather", "pipeline"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "title": "Job Success Rate (Last 24h)",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "100 * (sum(increase(dagster_job_success_total[24h])) / sum(increase(dagster_job_total[24h])))",
+            "legendFormat": "Success Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 80, "color": "yellow"},
+                {"value": 95, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Total Jobs Run (Last 24h)",
+        "type": "stat",
+        "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "sum(increase(dagster_job_total[24h]))",
+            "legendFormat": "Total Jobs"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "blue"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Failed Jobs (Last 24h)",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "sum(increase(dagster_job_failure_total[24h]))",
+            "legendFormat": "Failed Jobs"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Avg Job Duration",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "avg(dagster_run_duration_seconds)",
+            "legendFormat": "Avg Duration"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "decimals": 1
+          }
+        }
+      },
+      {
+        "title": "Job Runs Over Time",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(increase(dagster_job_success_total[5m]))",
+            "legendFormat": "Successful"
+          },
+          {
+            "expr": "sum(increase(dagster_job_failure_total[5m]))",
+            "legendFormat": "Failed"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Jobs"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Job Duration Trend",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "dagster_run_duration_seconds{job_name=\"weather_product_job\"}",
+            "legendFormat": "{{ job_name }}"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Duration"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Step Success Rate",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum by (step_name) (increase(dagster_step_success_total[1h]))",
+            "legendFormat": "{{ step_name }}"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Successful Steps"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Pod Memory Usage",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(container_memory_working_set_bytes{namespace=\"data\",pod=~\"dagster.*\"}) by (pod) / 1024 / 1024",
+            "legendFormat": "{{ pod }}"
+          }
+        ],
+        "yaxes": [
+          {"format": "mbytes", "label": "Memory"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Pod CPU Usage",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"data\",pod=~\"dagster.*\"}[5m])) by (pod)",
+            "legendFormat": "{{ pod }}"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "CPU Cores"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Active Pods",
+        "type": "table",
+        "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "kube_pod_info{namespace=\"data\"}",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true,
+                "Value": true,
+                "__name__": true
+              }
+            }
+          }
+        ]
+      },
+      {
+        "title": "Recent Job Logs (Loki Integration)",
+        "type": "logs",
+        "gridPos": {"x": 0, "y": 28, "w": 24, "h": 8},
+        "targets": [
+          {
+            "expr": "{namespace=\"data\", app=~\"dagster.*\"}",
+            "datasource": "Loki"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,121 @@
+global:
+  resolve_timeout: 5m
+  # Slack webhook URL (replace with your actual webhook)
+  # Get from: https://api.slack.com/messaging/webhooks
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+# Inhibition rules prevent certain alerts from firing when others are active
+inhibit_rules:
+  - equal:
+      - namespace
+      - alertname
+    source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity =~ warning|info
+  - equal:
+      - namespace
+      - alertname
+    source_matchers:
+      - severity = warning
+    target_matchers:
+      - severity = info
+  - equal:
+      - namespace
+    source_matchers:
+      - alertname = InfoInhibitor
+    target_matchers:
+      - severity = info
+  - target_matchers:
+      - alertname = InfoInhibitor
+
+# Define notification receivers
+receivers:
+  # Default null receiver (no notifications)
+  - name: 'null'
+
+  # Slack notifications for critical alerts
+  - name: 'slack-critical'
+    slack_configs:
+      - channel: '#alerts-critical'
+        title: '🚨 Critical Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Namespace:* {{ .CommonLabels.namespace }}
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  # Slack notifications for Dagster-specific alerts
+  - name: 'slack-dagster'
+    slack_configs:
+      - channel: '#dagster-alerts'
+        title: '⚠️ Dagster Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+
+  # Email notifications (configure SMTP in global section)
+  - name: 'email-ops'
+    email_configs:
+      - to: 'ops-team@example.com'
+        from: 'alertmanager@example.com'
+        smarthost: 'smtp.gmail.com:587'
+        auth_username: 'alertmanager@example.com'
+        auth_password: 'YOUR_APP_PASSWORD'
+        headers:
+          Subject: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+        send_resolved: true
+
+  # PagerDuty integration (for production critical alerts)
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: 'YOUR_PAGERDUTY_INTEGRATION_KEY'
+        description: '{{ .CommonAnnotations.summary }}'
+
+# Routing rules - where to send alerts
+route:
+  # Default grouping
+  group_by:
+    - alertname
+    - cluster
+    - service
+    - namespace
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'null'  # Default to null (no notifications)
+
+  # Specific routing rules
+  routes:
+    # Ignore Watchdog alert (used for testing)
+    - matchers:
+        - alertname = "Watchdog"
+      receiver: 'null'
+
+    # Route critical alerts to Slack and PagerDuty
+    - matchers:
+        - severity = "critical"
+      receiver: 'slack-critical'
+      continue: true
+      group_wait: 0s
+
+    # Route Dagster-specific alerts to dedicated channel
+    - matchers:
+        - alertname =~ "Dagster.*"
+      receiver: 'slack-dagster'
+      group_wait: 30s
+      repeat_interval: 4h
+
+    # Route all warnings to Slack
+    - matchers:
+        - severity = "warning"
+      receiver: 'slack-dagster'
+      repeat_interval: 24h
+
+templates:
+  - '/etc/alertmanager/config/*.tmpl'
