@@ -280,10 +280,29 @@ if [ "$FORCE_MODE" = true ]; then
     # Delete S3 bucket
     echo "Deleting S3 bucket..."
     if aws s3api head-bucket --bucket dagster-weather-products --region "$AWS_REGION" 2>/dev/null; then
-        echo "  Emptying bucket..."
-        aws s3 rm s3://dagster-weather-products --recursive --region "$AWS_REGION" &> /dev/null || true
+        echo "  Emptying bucket (including all versions)..."
+        # Delete all object versions
+        aws s3api delete-objects \
+          --bucket dagster-weather-products \
+          --delete "$(aws s3api list-object-versions \
+            --bucket dagster-weather-products \
+            --region "$AWS_REGION" \
+            --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+            --max-items 1000)" \
+          --region "$AWS_REGION" &> /dev/null || true
+
+        # Delete all delete markers
+        aws s3api delete-objects \
+          --bucket dagster-weather-products \
+          --delete "$(aws s3api list-object-versions \
+            --bucket dagster-weather-products \
+            --region "$AWS_REGION" \
+            --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' \
+            --max-items 1000)" \
+          --region "$AWS_REGION" &> /dev/null || true
+
         echo "  Deleting bucket..."
-        aws s3api delete-bucket --bucket dagster-weather-products --region "$AWS_REGION" &> /dev/null || true
+        aws s3 rb s3://dagster-weather-products --force --region "$AWS_REGION" &> /dev/null || true
         print_success "S3 bucket deleted"
     else
         print_warning "S3 bucket not found"
@@ -422,14 +441,27 @@ if [ "$FORCE_MODE" = true ]; then
 
             # 6. Delete route tables (except main)
             echo "    Checking for route tables..."
-            ROUTE_TABLES=$(aws ec2 describe-route-tables --region "$AWS_REGION" \
-                --filters "Name=vpc-id,Values=$vpc_id" \
-                --query 'RouteTables[?Associations[0].Main==`false`].RouteTableId' --output text 2>/dev/null)
+            # First, get the main route table ID
+            MAIN_RTB=$(aws ec2 describe-route-tables --region "$AWS_REGION" \
+                --filters "Name=vpc-id,Values=$vpc_id" "Name=association.main,Values=true" \
+                --query 'RouteTables[0].RouteTableId' --output text 2>/dev/null)
 
-            if [ -n "$ROUTE_TABLES" ]; then
-                for rtb in $ROUTE_TABLES; do
+            # Get all route tables for this VPC
+            ALL_RTBS=$(aws ec2 describe-route-tables --region "$AWS_REGION" \
+                --filters "Name=vpc-id,Values=$vpc_id" \
+                --query 'RouteTables[].RouteTableId' --output text 2>/dev/null)
+
+            if [ -n "$ALL_RTBS" ]; then
+                for rtb in $ALL_RTBS; do
+                    # Skip the main route table
+                    if [ "$rtb" == "$MAIN_RTB" ]; then
+                        echo "      Skipping main route table: $rtb"
+                        continue
+                    fi
+
+                    # Try to delete non-main route tables
                     echo "      Deleting route table: $rtb"
-                    aws ec2 delete-route-table --route-table-id "$rtb" --region "$AWS_REGION" &> /dev/null || true
+                    aws ec2 delete-route-table --route-table-id "$rtb" --region "$AWS_REGION" 2>&1 | grep -v "does not exist" || true
                 done
             fi
 
@@ -602,6 +634,15 @@ else
     REMOVE_KEYS="no"
 fi
 
+# Clean up SSH keys
+if [ -d "$PROJECT_ROOT/.ssh" ]; then
+    echo "Removing SSH keys from .ssh/..."
+    rm -rf "$PROJECT_ROOT/.ssh"
+    print_success "SSH keys removed"
+else
+    print_warning "No SSH keys found at .ssh/"
+fi
+
 # Step 7: Clean up Terraform state and cache
 print_section "Step 7: Cleaning Up Terraform Files"
 
@@ -648,6 +689,7 @@ echo "  ✓ NAT Gateways and Elastic IPs"
 echo "  ✓ S3 bucket and data"
 echo "  ✓ IAM roles and policies"
 echo "  ✓ ECR repositories"
+echo "  ✓ SSH keys and bastion credentials"
 echo "  ✓ Terraform state files"
 echo ""
 

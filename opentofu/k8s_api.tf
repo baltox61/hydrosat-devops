@@ -37,6 +37,11 @@ resource "kubernetes_deployment" "api" {
         labels = {
           app = "products-api"
         }
+        annotations = {
+          "prometheus.io/scrape" = "true"
+          "prometheus.io/port"   = "8000"
+          "prometheus.io/path"   = "/metrics"
+        }
       }
 
       spec {

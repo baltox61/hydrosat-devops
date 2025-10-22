@@ -155,6 +155,12 @@ fi
 
 print_success "Docker images built and pushed"
 
+# Prepare directory for SSH keys
+echo "Creating .ssh directory for bastion key..."
+mkdir -p "$PROJECT_ROOT/.ssh"
+chmod 700 "$PROJECT_ROOT/.ssh"
+print_success "SSH key directory created"
+
 # Step 3: Initialize OpenTofu
 print_section "Step 3: Initializing OpenTofu"
 
@@ -482,41 +488,48 @@ echo "   kubectl -n data port-forward svc/products-api 8080:8080"
 echo "   curl http://localhost:8080/products"
 echo ""
 
-echo -e "${YELLOW}Running Initial Pipeline Job:${NC}"
-echo "Triggering the weather pipeline to populate S3 with initial data..."
+echo -e "${YELLOW}Verifying Dagster Deployment:${NC}"
+echo "Checking if Dagster user-code deployment is ready..."
 echo ""
 
 # Wait for Dagster user-code deployment to be ready
-echo "Waiting for Dagster user-code deployment to be ready..."
+echo "Waiting for user-code pods..."
 kubectl wait --for=condition=ready pod -l component=user-deployments -n data --timeout=120s 2>/dev/null || {
-    print_warning "Dagster user-code not ready yet - you can run the pipeline manually later"
-    echo "   POD=\$(kubectl get pod -n data -l component=user-deployments -o jsonpath='{.items[0].metadata.name}')"
-    echo "   kubectl -n data exec -it \$POD -- dagster job execute -m weather_pipeline -j weather_product_job"
+    print_warning "Dagster user-code not ready yet - you can trigger the pipeline manually"
 }
 
-# Try to run the pipeline
-if kubectl wait --for=condition=ready pod -l component=user-deployments -n data --timeout=5s 2>/dev/null; then
-    echo "Running weather pipeline job..."
-    POD=$(kubectl get pod -n data -l component=user-deployments -o jsonpath='{.items[0].metadata.name}')
-    kubectl -n data exec $POD -- \
-      dagster job execute -m weather_pipeline -j weather_product_job 2>&1 | grep -E "(Started|Fetched|Uploaded|succeeded|ERROR)" || true
-
-    echo ""
-    echo "✅ Pipeline job triggered successfully!"
-    echo "   Data should now be available in S3 and queryable via the API"
-    echo ""
-fi
+# Note: Pipeline is NOT auto-triggered on deployment
+# Users should manually trigger via Dagster UI for demo purposes
+echo ""
+print_success "Dagster deployment complete - ready for manual pipeline execution"
+echo ""
 
 echo -e "${YELLOW}Next Steps:${NC}"
-echo "1. Wait for LoadBalancers to get external IPs (2-3 minutes)"
-echo "2. Access Dagster UI to view pipeline runs:"
-echo "   kubectl -n data port-forward deployment/dagster-dagster-webserver 3000:80"
-echo "   Open http://localhost:3000"
-echo "3. Verify data is written to S3:"
+echo ""
+echo "1. Set up friendly DNS aliases (requires sudo password):"
+echo "   ./scripts/setup_dns_aliases.sh"
+echo ""
+echo "2. Start port-forwarding (in separate terminal windows):"
+echo "   kubectl port-forward -n data svc/dagster-dagster-webserver 3000:80"
+echo "   kubectl port-forward -n monitoring svc/kps-grafana 8001:80"
+echo "   kubectl port-forward -n data svc/products-api 8080:8080"
+echo "   kubectl port-forward -n monitoring svc/kps-kube-prometheus-stack-prometheus 9090:9090"
+echo ""
+echo "3. Access Dagster UI and trigger the pipeline:"
+echo "   Open: http://dagster.dagster.local:3000"
+echo "   Navigate to: Jobs → weather_product_job"
+echo "   Click: 'Launchpad' → 'Launch run' (bottom left)"
+echo "   Wait: ~30-60 seconds for completion"
+echo ""
+echo "4. Verify data is written to S3:"
 echo "   aws s3 ls s3://dagster-weather-products/weather-products/ --recursive"
-echo "4. Query the API (data should already be available):"
-echo "   kubectl -n data port-forward svc/products-api 8080:8080"
-echo "   curl http://localhost:8080/products?limit=5"
+echo ""
+echo "5. Query the API (after pipeline completes):"
+echo "   curl http://api.dagster.local:8080/products?limit=5"
+echo ""
+echo "6. Access monitoring dashboards:"
+echo "   Grafana:    http://grafana.dagster.local:8001 (admin/prom-operator)"
+echo "   Prometheus: http://prometheus.dagster.local:9090"
 echo ""
 
 echo -e "${YELLOW}Troubleshooting:${NC}"

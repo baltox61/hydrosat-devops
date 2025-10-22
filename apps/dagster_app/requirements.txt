@@ -13,3 +13,6 @@ requests==2.32.3
 
 # Data processing (if needed in future)
 pandas==2.2.3
+
+# Metrics and monitoring
+prometheus-client==0.21.0

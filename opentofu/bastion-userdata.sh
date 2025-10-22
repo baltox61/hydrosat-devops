@@ -8,12 +8,15 @@ set -e
 dnf update -y
 
 # Install required packages
-dnf install -y curl unzip jq git
+dnf install -y --allowerasing curl unzip jq git
 
-# Install kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+# Install kubectl (matching EKS cluster version 1.33.x)
+# Fetch the latest stable 1.33.x patch version
+KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable-1.33.txt)
+curl -LO "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl"
 install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 rm kubectl
+echo "Installed kubectl version: $KUBECTL_VERSION" >> /var/log/userdata.log
 
 # Install AWS CLI v2
 cd /tmp

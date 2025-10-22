@@ -75,12 +75,6 @@ kubectl port-forward -n monitoring svc/kps-kube-prometheus-stack-alertmanager 90
 | **DagsterHighMemoryUsage** | Pod using >90% memory | Review resource limits |
 | **DagsterPodRestarting** | Pod restarts detected | Check logs for OOMKilled |
 
-### Demo Alerts (for interviews) 📺
-
-| Alert | Trigger | Purpose |
-|-------|---------|---------|
-| **DemoJobFailed** | demo_flaky_job fails | Shows alerting works |
-| **DemoJobHighFailureRate** | >60% failure rate | Demonstrates metric evaluation |
 
 ### Info Alerts ℹ️
 
@@ -122,37 +116,61 @@ rate(dagster_job_total{job_name="demo_flaky_job"}[1h])
 
 ## 📈 Grafana Dashboards
 
-### Import Custom Dagster Dashboard
+### Custom Dashboards
 
+The monitoring stack includes 3 custom dashboards optimized for demos and interviews:
+
+**1. Kubernetes Cluster Overview** (`Custom/kubernetes-overview`)
+- Cluster health (ready nodes)
+- Total pods running
+- CPU and memory usage (gauges)
+- Resource usage by namespace
+- Pod status breakdown
+
+**2. Weather Products API** (`Custom/product-api`)
+- API status (up/down)
+- Request rate and response times (P50, P95, P99)
+- Error rate percentage
+- HTTP status code distribution
+- Pod resource usage (CPU/memory)
+
+**3. Dagster Pipeline** (`Custom/dagster`)
+- Job success rate (24h)
+- Total jobs run and failed jobs
+- Average job duration
+- Job runs timeline (success/failure)
+- Demo job failure rate
+- Step success rate
+- Daemon status
+- Active job runs
+- Pod resource usage
+
+### Dashboard Organization
+
+All custom dashboards are located in the **Custom** folder in Grafana. The default Kubernetes dashboards have been disabled to reduce clutter and focus on the most relevant metrics for this demo.
+
+To access:
 1. Login to Grafana (http://grafana.dagster.local)
-2. Click "+" (Create) → "Import"
-3. Click "Upload JSON file"
-4. Select `monitoring/dagster-dashboard.json`
-5. Select "Prometheus" as data source
-6. Click "Import"
+2. Click "Dashboards" in the left menu
+3. Navigate to "Custom" folder
+4. Select the dashboard you want to view
 
-### Dashboard Panels
+### Adding More Dashboards
 
-The custom dashboard includes:
-- **Job Success Rate** - % successful in last 24h
-- **Total Jobs Run** - Execution count
-- **Failed Jobs** - Failure count (should be 0!)
-- **Avg Job Duration** - Performance trend
-- **Job Runs Over Time** - Success/failure timeline
-- **Job Duration Trend** - Execution time graph
-- **Step Success Rate** - Per-step metrics
-- **Pod Memory Usage** - Memory by pod
-- **Pod CPU Usage** - CPU utilization
-- **Active Pods** - Running pod list
+To add additional custom dashboards:
 
-### Pre-built Kubernetes Dashboards
-
-Navigate to Dashboards → Browse to find:
-- Kubernetes / Compute Resources / Cluster
-- Kubernetes / Compute Resources / Namespace (Pods)
-- Kubernetes / Compute Resources / Pod
-- Node Exporter / Nodes
-- Prometheus / Overview
+1. Create a JSON file in `monitoring/dashboards/`
+2. Add the file reference to `opentofu/grafana-dashboards.tf`:
+   ```hcl
+   data = {
+     "your-dashboard.json" = file("${path.module}/../monitoring/dashboards/your-dashboard.json")
+   }
+   ```
+3. Apply the changes:
+   ```bash
+   cd opentofu
+   tofu apply
+   ```
 
 ---
 

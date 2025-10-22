@@ -2,7 +2,7 @@
 
 This guide walks you through demonstrating the complete Dagster weather pipeline deployment for DevOps interviews or presentations.
 
-## 🎯 Demo Overview
+## Demo Overview
 
 This demo showcases a production-ready data pipeline deployment on AWS EKS with:
 - **Dagster** - Data orchestration with scheduled jobs
@@ -11,24 +11,52 @@ This demo showcases a production-ready data pipeline deployment on AWS EKS with:
 - **AWS Services** - EKS, S3, ECR, IRSA for pod-level permissions
 - **Infrastructure as Code** - OpenTofu/Terraform for everything
 
-## 🚀 Quick Setup (5 minutes)
+---
 
-### 1. Set Up DNS Aliases
+## Prerequisites
 
-Run the DNS setup script to get nice URLs like `grafana.dagster.local`:
+Before deploying, ensure you have:
 
+### 1. AWS CLI Configured
 ```bash
-./scripts/setup_dns_aliases.sh
+# Configure AWS profile (if not already done)
+aws configure --profile your-profile-name
+
+# Verify credentials
+aws sts get-caller-identity
 ```
 
-This will:
-- Resolve LoadBalancer IPs for Grafana, Prometheus, and API
-- Add entries to `/etc/hosts` for easy access
-- Show you all access URLs and credentials
+### 2. Required Tools Installed
+- `kubectl` (v1.28+)
+- `helm` (v3.12+)
+- `opentofu` or `terraform` (v1.6+)
+- `docker` (for building images)
+- `jq` (for JSON parsing)
 
-### 2. Access Your Services
+### 3. API Keys
+- **OpenWeather API Key** - Get free at https://openweathermap.org/api
+- Store in Vault or environment variable for the deployment
 
-After running the setup script, you can access:
+---
+
+## 🚀 Deployment & Setup
+
+### Deploy Everything
+```bash
+# 1. Deploy the complete infrastructure
+./scripts/deploy_all.sh
+
+# 2. Set up friendly DNS aliases (requires sudo)
+sudo ./scripts/setup_dns_aliases.sh
+```
+
+After deployment completes (~10-15 minutes), all services will be running and accessible.
+
+---
+
+## 🎯 Quick Access (Post-Deployment)
+
+Access your services using the DNS aliases configured above:
 
 **Grafana Dashboard:**
 - URL: http://grafana.dagster.local
@@ -102,11 +130,11 @@ kubectl get deployments -n monitoring
 
 5. **Verify S3 Data:**
    ```bash
-   export AWS_PROFILE=balto
+   # Use your configured AWS profile
    aws s3 ls s3://dagster-weather-products/weather-products/ --recursive | tail -5
 
-   # View the data
-   aws s3 cp s3://dagster-weather-products/weather-products/2025/10/21/021534.jsonl - | jq
+   # View the data (use a recent timestamp from the above output)
+   aws s3 cp s3://dagster-weather-products/weather-products/YYYY/MM/DD/HHMMSS.jsonl - | jq
    ```
 
 ### Part 3: Secrets Management with Vault (5 min)
@@ -154,45 +182,32 @@ kubectl get deployments -n monitoring
    - Select `data` namespace
    - Show CPU/Memory usage graphs
 
-3. **Import Custom Dashboard:**
-   - Click "+" → Import
-   - Upload `monitoring/dagster-dashboard.json`
-   - Select Prometheus data source
-   - Show the custom Dagster metrics
+3. **Show Custom Dagster Dashboard:**
+   - Navigate to Dashboards → Browse
+   - Open "Dagster Pipeline Metrics"
+   - Show the custom Dagster metrics (job success/failure rates, durations, etc.)
+
+   Note: Dashboards are automatically imported by OpenTofu from `monitoring/dashboards/`
 
 4. **View Active Alerts:**
    - Click Alerting → Alert rules
    - Show the 12 configured alerts
    - Explain severities (critical, warning, info)
 
-5. **Demonstrate the Demo Flaky Job:**
-   This is the **showstopper** - a job that fails 50% of the time to trigger alerts!
-
-   ```bash
-   # Port-forward to Dagster
-   kubectl port-forward -n data svc/dagster-dagster-webserver 3001:80
-   ```
-
-   - Open http://dagster.dagster.local:3001
-   - Navigate to `demo_flaky_job`
-   - Explain: "This job randomly fails 50% of the time to demonstrate alerting"
-   - Click "Launch Run" multiple times (3-5 runs)
-   - **Some will succeed ✅, some will fail ❌**
-
-6. **Show Alert Firing:**
+5. **Show Alert Firing:**
    - Go back to Grafana → Alerting → Alert rules
    - Wait ~2 minutes for alert evaluation
    - Show **DemoJobFailed** alert firing
    - Point out the alert details, annotations
 
-7. **Show in Prometheus:**
+6. **Show in Prometheus:**
    - Open http://prometheus.dagster.local:9090
    - Navigate to Alerts tab
    - Show the firing alerts there too
    - Run a query: `dagster_job_failure_total{job_name="demo_flaky_job"}`
    - Show the metric increasing
 
-8. **Explain Alert Routing** (if Slack configured):
+7. **Explain Alert Routing** (if Slack configured):
    - Show `monitoring/alertmanager-config.yaml`
    - Explain routing rules:
      - Critical → Slack + PagerDuty
@@ -230,9 +245,107 @@ kubectl get deployments -n monitoring
    # Show deployment automation
    cat scripts/deploy_all.sh
 
-   # Show testing script
-   cat scripts/test_e2e.sh
    ```
+
+### Part 6: Bastion Host - Secure API Access Testing (5 min)
+
+**Demonstrate that the Products API is truly private and only accessible via bastion:**
+
+The Products API uses a ClusterIP service (no public IP), demonstrating production-grade security. To access it, we use a bastion host deployed in the public subnet.
+
+1. **Show the bastion infrastructure:**
+   ```bash
+   # Show bastion EC2 instance
+   aws ec2 describe-instances \
+     --filters "Name=tag:Name,Values=dagster-eks-bastion" \
+     --query 'Reservations[0].Instances[0].[InstanceId,State.Name,PublicIpAddress,PrivateIpAddress]' \
+     --output table
+   ```
+
+2. **Get bastion IP for the examples below:**
+   ```bash
+   # Get bastion public IP (filter for running instances only)
+   BASTION_IP=$(aws ec2 describe-instances \
+     --filters "Name=tag:Name,Values=dagster-eks-bastion" \
+               "Name=instance-state-name,Values=running" \
+     --query 'Reservations[0].Instances[0].PublicIpAddress' \
+     --output text)
+   echo "Bastion IP: $BASTION_IP"
+   ```
+
+3. **Quick demo - One-liner API test (recommended for presentations):**
+
+   This is the fastest way to show the API working via bastion:
+
+   ```bash
+   # Start port-forward in background on bastion
+   ssh -i .ssh/bastion-key.pem -o StrictHostKeyChecking=no ec2-user@$BASTION_IP \
+     "kubectl port-forward -n data svc/products-api 8080:8080 > /dev/null 2>&1 &"
+
+   # Wait for port-forward to start
+   sleep 2
+
+   # Test API with a single command
+   ssh -i .ssh/bastion-key.pem -o StrictHostKeyChecking=no ec2-user@$BASTION_IP \
+     "curl -s http://localhost:8080/products?limit=3 | jq"
+   ```
+
+   **Note:** The port-forward runs in the background on the bastion. To stop it later, SSH to bastion and run `pkill -f "port-forward"`.
+
+4. **Full interactive demo - Connect to bastion and run commands:**
+
+   For a more detailed walkthrough, SSH into the bastion interactively:
+
+   ```bash
+   # SSH to bastion (key was generated during deployment)
+   ssh -i .ssh/bastion-key.pem ec2-user@$BASTION_IP
+   ```
+
+   Once connected to bastion, run these commands:
+   ```bash
+   # Update kubeconfig to access EKS cluster
+   aws eks update-kubeconfig --region us-east-2 --name dagster-eks
+
+   # Verify cluster access
+   kubectl get nodes
+
+   # Access the Products API from within the cluster
+   kubectl port-forward -n data svc/products-api 8080:8080 &
+
+   # Test the API
+   curl http://localhost:8080/health
+   curl http://localhost:8080/products?limit=3 | jq
+   ```
+
+5. **Demonstrate it's NOT accessible from internet:**
+   ```bash
+   # Exit bastion (or from your local machine)
+   exit
+
+   # Try to access API directly (should fail)
+   # Get the Products API service info
+   kubectl get svc -n data products-api
+
+   # Notice it's ClusterIP type - no external IP
+   # This proves the API is only accessible from within the cluster or via bastion
+   ```
+
+**Key talking points:**
+- **Security**: API has no public IP, reducing attack surface
+- **Bastion pattern**: Standard AWS security best practice for accessing private resources
+- **IAM integration**: Bastion uses IAM role for EKS authentication (no static credentials)
+- **Auditability**: All bastion access logged via CloudTrail
+- **Alternative**: Could also use AWS Systems Manager Session Manager for SSH-less access
+
+**Alternative: AWS SSM Session Manager (no SSH key needed):**
+```bash
+# Connect via SSM (if instance has SSM agent)
+aws ssm start-session --target <instance-id>
+
+# Once connected, same kubectl commands work
+aws eks update-kubeconfig --region us-east-2 --name dagster-eks
+kubectl port-forward -n data svc/products-api 8080:8080
+```
 
 ## 🎬 Interview Q&A Preparation
 
@@ -285,10 +398,8 @@ A:
 **Q: How do you test this?**
 A:
 - Unit tests for pipeline code (pytest)
-- Integration tests with `scripts/test_e2e.sh`
 - Terraform validation before apply
 - Staged deployments (dev → staging → prod)
-- The demo_flaky_job itself is a test fixture for alerting
 
 ## 🔍 Troubleshooting During Demo
 
@@ -371,13 +482,46 @@ dagster_run_duration_seconds{job_name="weather_product_job"}
 
 ## 📝 Cleanup After Demo
 
-```bash
-# Remove DNS aliases
-./scripts/setup_dns_aliases.sh remove
+### Remove DNS Aliases
 
-# (Optional) Tear down infrastructure
-./scripts/teardown_all.sh
+```bash
+# Remove friendly DNS aliases from /etc/hosts
+sudo ./scripts/setup_dns_aliases.sh remove
 ```
+
+### Tear Down Infrastructure
+
+**Automated Cleanup (Recommended):**
+
+```bash
+# Normal mode (uses OpenTofu/Terraform destroy)
+./scripts/teardown_all.sh
+
+# Force mode (bypasses Terraform, uses direct AWS cleanup)
+# Use this if Terraform state is corrupted or you need immediate cleanup
+# This is the easiest way to clean it all up
+./scripts/teardown_all.sh --force
+```
+
+**What gets cleaned up:**
+- EKS cluster and all node groups
+- VPC, subnets, NAT Gateway, Internet Gateway
+- S3 buckets (weather products)
+- ECR repositories (Docker images)
+- IAM roles and policies
+- Security groups
+- LoadBalancers and associated resources
+- Bastion host and SSH key pair
+
+**Important notes:**
+- Normal mode takes ~10-15 minutes
+- Force mode is faster but less graceful
+- Always verify cleanup completed: `aws eks list-clusters`
+- Check for orphaned resources in AWS Console
+
+**Manual cleanup (if automated fails):**
+
+See [docs/OPERATIONS.md](docs/OPERATIONS.md#troubleshooting) for manual cleanup procedures if the automated scripts fail.
 
 ## 🎯 Success Metrics
 

@@ -4,23 +4,11 @@ A production-ready AWS EKS cluster with Dagster for data orchestration, demonstr
 
 ---
 
-## Quick Start
+## Quick Links
 
-```bash
-# 1. Deploy everything
-./scripts/deploy_all.sh
-
-# 2. Set up friendly DNS aliases
-./scripts/setup_dns_aliases.sh
-
-# 3. Access services
-# Grafana:    http://grafana.dagster.local (admin/prom-operator)
-# Prometheus: http://prometheus.dagster.local:9090
-# API:        http://api.dagster.local:8080/products
-```
-
-**📖 For detailed setup:** See [docs/SETUP.md](docs/SETUP.md)
-**🎬 For interview demo:** See [DEMO_GUIDE.md](DEMO_GUIDE.md)
+- **🚀 Get Started:** [DEMO_GUIDE.md](DEMO_GUIDE.md) - Prerequisites, deployment, and demo walkthrough
+- **📸 Working Examples:** [docs/WORKING_EXAMPLES.md](docs/WORKING_EXAMPLES.md) - Live command examples and screenshots showing the platform in action
+- **📚 Detailed Setup:** [docs/SETUP.md](docs/SETUP.md) - Complete setup guide with architecture details
 
 ---
 
@@ -74,14 +62,14 @@ A production-ready AWS EKS cluster with Dagster for data orchestration, demonstr
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**→ See [docs/diagrams.md](docs/diagrams.md) for detailed architecture diagrams**
+**→ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture information**
 
 ---
 
 ## Key Components
 
 ### Infrastructure
-- **AWS EKS** - Kubernetes 1.33 with managed node groups across 2 AZs
+- **AWS EKS** - Kubernetes 1.33 with managed node groups across 2 AZs, I went with 1.33 since I have not read over docs for 1.34 upgrade just yet
 - **VPC** - Multi-AZ with public/private subnets, NAT Gateway, Internet Gateway
 - **Karpenter** - Advanced cluster autoscaler with dynamic instance selection
 - **S3** - Object storage for weather data products with lifecycle policies
@@ -134,8 +122,8 @@ A production-ready AWS EKS cluster with Dagster for data orchestration, demonstr
 
 **How It Works:**
 1. Init container runs before application starts
-2. Authenticates to Vault using Kubernetes service account JWT
-3. Fetches secrets and writes to shared memory volume (`emptyDir: Memory`)
+2. Authenticates to Vault using Kubernetes service account
+3. Fetches secrets and writes to shared memory volume
 4. Application reads secrets from `/app/.env` file (not environment variables)
 5. Secrets exist only in pod memory, cleared when pod terminates
 
@@ -149,7 +137,7 @@ A production-ready AWS EKS cluster with Dagster for data orchestration, demonstr
 - Least privilege via Vault policies
 - Allows for a more automated process
 
-**→ See [OPERATIONS.md](OPERATIONS.md#vault-operations) for Vault management details**
+**→ See [docs/OPERATIONS.md](docs/OPERATIONS.md#vault-operations) for Vault management details**
 
 ---
 
@@ -185,37 +173,47 @@ A production-ready AWS EKS cluster with Dagster for data orchestration, demonstr
 - Accessible only via kubectl port-forward or bastion host
 - IRSA for S3 read access (no static credentials)
 
-**→ See [GETTING_STARTED.md](GETTING_STARTED.md#part-2-try-it-out) for API testing instructions**
+**→ See [DEMO_GUIDE.md](DEMO_GUIDE.md) for API testing instructions**
 
 ---
 
 ## Monitoring & Alerting
 
-### Metrics Collected
+### Grafana Dashboards
+
+Three custom dashboards optimized for demos and interviews:
+
+**1. Kubernetes Cluster Overview** - Essential cluster metrics (nodes, pods, CPU, memory)
+**2. Weather Products API** - API performance and health (request rates, latency, errors)
+**3. Dagster Pipeline** - Job success rates, durations, failures, and resource usage
+
+Access at: http://grafana.dagster.local (admin/prom-operator)
+
+### Key Metrics
 
 **Dagster Metrics:**
-- `dagster_job_success_total` - Total successful job runs
-- `dagster_job_failure_total` - Total failed job runs
-- `dagster_job_duration_seconds` - Job execution time
-- `dagster_daemon_heartbeat` - Daemon health check
+- Job success/failure rates and duration
+- Step-level execution metrics
+- Daemon heartbeat and active runs
+- Demo job failure rate (for testing alerts)
 
 **Kubernetes Metrics:**
-- Pod CPU/Memory usage
-- Node CPU/Memory/Disk usage
-- Pod restart counts
-- Network traffic
+- Pod CPU/Memory usage by namespace
+- Node resource utilization
+- Pod status and restart counts
 
 ### Alert Rules
 
-**DagsterJobFailed** (Critical)
-- Alerts after any job failure (within 1 minute)
-- Notifies via Slack/email/PagerDuty
+**Critical Alerts:**
+- **DagsterJobFailed** - Alerts after any job failure
+- **S3UploadFailures** - S3 upload step fails
 
-**DagsterDaemonDown** (Warning)
-- Alerts if Dagster daemon is down for 5 minutes
-- Notifies platform team
+**Warning Alerts:**
+- **DagsterDaemonDown** - Daemon down for >5 minutes
+- **WeatherPipelineStale** - No successful runs in 2 hours
+- **DemoJobFailed** - Demo job failed (for testing alerts)
 
-**→ See [OPERATIONS.md](OPERATIONS.md#monitoring--alerting) for monitoring setup details**
+**→ See [docs/MONITORING.md](docs/MONITORING.md) for full monitoring setup and alert configuration**
 
 ---
 
@@ -246,14 +244,15 @@ A production-ready AWS EKS cluster with Dagster for data orchestration, demonstr
 │   ├── deploy_all.sh              # Automated deployment
 │   ├── teardown_all.sh            # Automated cleanup
 │   ├── vault_init.sh              # Initialize and unseal Vault
-│   ├── build_and_push_images.sh   # Build and push Docker images
-│   └── test_apps_locally.sh       # Test application code
+│   └── setup_dns_aliases.sh       # DNS alias configuration
 │
 ├── docs/                          # Documentation
-│   └── diagrams.md                # Architecture diagrams (Mermaid)
+│   ├── SETUP.md                   # Detailed setup guide
+│   ├── OPERATIONS.md              # Vault, monitoring, troubleshooting
+│   ├── MONITORING.md              # Monitoring and alerting details
+│   └── ARCHITECTURE.md            # Architecture decisions and diagrams
 │
-├── GETTING_STARTED.md             # Deployment, testing, and demo guide
-├── OPERATIONS.md                  # Vault, monitoring, troubleshooting
+├── DEMO_GUIDE.md                  # Interview/demo walkthrough
 ├── apps/README.md                 # App development guide
 └── README.md                      # This file
 ```
@@ -280,21 +279,12 @@ This is a demo setup. For production, implement:
 
 ### Monitoring & Observability
 - **Longer Prometheus retention** (weeks/months) with remote storage (S3/Thanos)
-- **Distributed tracing** with Jaeger or Tempo
-- **Log aggregation** with ELK stack or Loki
-- **Custom SLI/SLO dashboards** for business metrics
+- **Custom SLI/SLO dashboards** for business metrics based on KPIs
 
 ### Automation
-- **GitOps** with ArgoCD or FluxCD for continuous deployment
 - **Automated backup schedules** for Vault and PostgreSQL
 - **Automated secret rotation** policies
 - **Chaos engineering** with Chaos Mesh for resilience testing
-
-### Cost Optimization
-- **Reserved Instances** for baseline capacity (up to 75% savings)
-- **Spot Instances** for batch workloads (up to 90% savings)
-- **S3 lifecycle policies** (Standard → IA → Glacier → Deep Archive)
-- **Kubecost** for cost visibility and right-sizing recommendations
 
 ---
 
@@ -304,22 +294,6 @@ This is a demo setup. For production, implement:
 - **[OPERATIONS.md](OPERATIONS.md)** - Vault operations, testing, monitoring, troubleshooting
 - **[apps/README.md](apps/README.md)** - Application development guide
 - **[docs/diagrams.md](docs/diagrams.md)** - Architecture diagrams
-
----
-
-## Cleanup
-
-### Automated Cleanup (Recommended)
-
-```bash
-# Normal mode (uses Terraform destroy)
-./scripts/teardown_all.sh
-
-# Force mode (bypasses Terraform, uses direct AWS cleanup)
-./scripts/teardown_all.sh --force
-```
-
-**→ See [OPERATIONS.md](OPERATIONS.md#troubleshooting) for manual cleanup if needed**
 
 ---
 
@@ -408,10 +382,12 @@ The infrastructure already includes Vault policies and IRSA roles. To enable Atl
 
 ## 📚 Documentation
 
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[docs/SETUP.md](docs/SETUP.md)** | Complete deployment guide | 15 min |
-| **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Interview/demo walkthrough | 10 min |
-| **[docs/OPERATIONS.md](docs/OPERATIONS.md)** | Day-to-day operations | 10 min |
-| **[docs/MONITORING.md](docs/MONITORING.md)** | Monitoring & alerting | 12 min |
-| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Architecture decisions | 8 min |
+| Document | Purpose |
+|----------|---------|
+| **[docs/SETUP.md](docs/SETUP.md)** | Complete deployment guide with prerequisites and step-by-step instructions |
+| **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Interview/demo walkthrough script with timing and talking points |
+| **[docs/WORKING_EXAMPLES.md](docs/WORKING_EXAMPLES.md)** | Live command examples and visual walkthrough proving the deployment works |
+| **[docs/OPERATIONS.md](docs/OPERATIONS.md)** | Day-to-day operations, Vault management, and troubleshooting |
+| **[docs/MONITORING.md](docs/MONITORING.md)** | Monitoring setup, dashboards, alerts, and metrics details |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Architecture decisions, diagrams, and technical rationale |
+| **[apps/README.md](apps/README.md)** | Application development guide and local testing |

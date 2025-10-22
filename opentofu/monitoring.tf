@@ -8,14 +8,42 @@ resource "helm_release" "kps" {
   chart      = "kube-prometheus-stack"
   namespace  = var.monitoring_namespace
   version    = "65.1.0"
-  wait       = true
+
+  # Increase timeout for large CRD installation
+  timeout = 900  # 15 minutes
+  wait    = true
+
+  # Cleanup on failure
+  cleanup_on_fail = true
+
+  # Allow replacing failed releases
+  replace = true
 
   depends_on = [aws_eks_node_group.default]
 
   values = [yamlencode({
     grafana = {
-      defaultDashboardsEnabled = true
+      # Disable default dashboards to reduce clutter - using custom dashboards instead
+      defaultDashboardsEnabled = false
       service                  = { type = "LoadBalancer" }
+
+      # Grafana server configuration
+      "grafana.ini" = {
+        server = {
+          domain   = "grafana.dagster.local"
+          root_url = "http://grafana.dagster.local"
+        }
+      }
+
+      # Enable sidecar for dashboard discovery
+      sidecar = {
+        dashboards = {
+          enabled         = true
+          label           = "grafana_dashboard"
+          folder          = "/tmp/dashboards/Custom"
+          searchNamespace = var.monitoring_namespace
+        }
+      }
     }
     prometheus = {
       service = { type = "LoadBalancer" }

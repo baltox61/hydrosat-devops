@@ -7,3 +7,6 @@ boto3==1.35.75
 
 # Data processing
 python-dateutil==2.9.0
+
+# Metrics and monitoring
+prometheus-client==0.21.0

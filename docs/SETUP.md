@@ -78,6 +78,10 @@ aws ecr create-repository --repository-name weather-products-api --region $AWS_R
 #### 2. Deploy Infrastructure
 
 ```bash
+# Create directory for SSH keys
+mkdir -p .ssh
+chmod 700 .ssh
+
 cd opentofu
 tofu init
 

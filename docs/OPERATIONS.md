@@ -201,46 +201,6 @@ vault policy read dagster-app
 
 ## Testing
 
-### Automated Testing
-
-#### Test Application Code Locally
-
-```bash
-./scripts/test_apps_locally.sh
-```
-
-**Tests performed (8 total):**
-- Python syntax validation
-- Import checks for Dagster and API
-- FastAPI structure validation
-- Dagster job definition checks
-- Secret reading helper functions
-- Dagster CLI validation
-
-#### Test Infrastructure End-to-End
-
-```bash
-# After infrastructure is provisioned
-./scripts/test_e2e.sh
-```
-
-**Tests performed (15 total):**
-- Kubernetes cluster connectivity
-- Namespace existence (data, vault, monitoring)
-- Node readiness
-- Vault status and unseal state
-- Dagster pod health
-- API pod health
-- Secret injection verification
-- S3 bucket access
-- IRSA configuration
-- Prometheus metrics scraping
-- Grafana accessibility
-
----
-
-### Manual Testing
-
 #### 1. Test Dagster Pipeline
 
 ```bash

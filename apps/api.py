@@ -1,9 +1,11 @@
-import os, json
+import os, json, time
 from pathlib import Path
 
 import boto3
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from botocore.exceptions import ClientError
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from starlette.responses import Response
 
 # Load environment from vault-agent generated .env file
 def load_env_file(env_file_path: str = "/app/.env"):
@@ -44,10 +46,80 @@ s3 = boto3.client("s3")
 BUCKET = read_secret("WEATHER_RESULTS_BUCKET", "dagster-weather-products")
 PREFIX = os.getenv("WEATHER_RESULTS_PREFIX", "weather-products/")
 
+# Prometheus metrics
+http_requests_total = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status']
+)
+
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration in seconds',
+    ['method', 'endpoint'],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+)
+
+api_up = Gauge(
+    'up',
+    'API availability (1=up, 0=down)'
+)
+
+# Set API as up on startup
+api_up.set(1)
+
+@app.middleware("http")
+async def prometheus_middleware(request: Request, call_next):
+    """Middleware to track request metrics"""
+    start_time = time.time()
+
+    # Get endpoint path
+    endpoint = request.url.path
+    method = request.method
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+
+        # Record metrics
+        http_requests_total.labels(
+            method=method,
+            endpoint=endpoint,
+            status=str(status_code)
+        ).inc()
+
+        duration = time.time() - start_time
+        http_request_duration_seconds.labels(
+            method=method,
+            endpoint=endpoint
+        ).observe(duration)
+
+        return response
+    except Exception as e:
+        # Record error
+        http_requests_total.labels(
+            method=method,
+            endpoint=endpoint,
+            status="500"
+        ).inc()
+
+        duration = time.time() - start_time
+        http_request_duration_seconds.labels(
+            method=method,
+            endpoint=endpoint
+        ).observe(duration)
+
+        raise e
+
 @app.get("/health")
 def health():
     """Health check endpoint for Kubernetes probes"""
     return {"status": "healthy", "service": "products-api"}
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint"""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 @app.get("/products")
 def list_products(limit: int = 1):

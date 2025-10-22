@@ -38,6 +38,7 @@ RUN mkdir -p dagster_weather
 
 # Copy application code into module directory
 COPY __init__.py dagster_weather/__init__.py
+COPY dagster_metrics.py dagster_weather/dagster_metrics.py
 COPY weather_pipeline.py dagster_weather/weather_pipeline.py
 COPY demo_pipeline.py dagster_weather/demo_pipeline.py
 

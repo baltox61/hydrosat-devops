@@ -6,6 +6,17 @@ from pathlib import Path
 import boto3, requests
 from dagster import op, job, get_dagster_logger, Config, ScheduleDefinition, Definitions, repository
 
+# Import metrics instrumentation
+from dagster_weather.dagster_metrics import (
+    init_metrics_server,
+    StepMetricsContext,
+    job_success_hook,
+    job_failure_hook
+)
+
+# Initialize Prometheus metrics server on module load
+init_metrics_server(port=9090)
+
 # Load environment from vault-agent generated .env file
 def load_env_file(env_file_path: str = "/secrets/.env"):
     """Load environment variables from vault-agent generated .env file"""
@@ -54,54 +65,57 @@ def read_secret(env_var_name: str) -> str:
 
 @op
 def fetch_weather(_, config: FetchConfig) -> List[Dict[str, Any]]:
-    log = get_dagster_logger()
-    api_key = read_secret("OPENWEATHER_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENWEATHER_API_KEY not set")
+    with StepMetricsContext(job_name="weather_product_job", step_name="fetch_weather"):
+        log = get_dagster_logger()
+        api_key = read_secret("OPENWEATHER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENWEATHER_API_KEY not set")
 
-    out = []
-    for c in config.coords:
-        r = requests.get(OPENWEATHER_URL, params={"lat": c["lat"], "lon": c["lon"], "appid": api_key, "units": config.units}, timeout=20)
-        r.raise_for_status()
-        data = r.json()
-        data["_meta"] = {"requested_name": c.get("name"), "requested_lat": c["lat"], "requested_lon": c["lon"]}
-        out.append(data)
-        time.sleep(0.2)
-        default_name = f"{c['lat']},{c['lon']}"
-        log.info(f"Fetched weather for {c.get('name', default_name)}")
-    return out
+        out = []
+        for c in config.coords:
+            r = requests.get(OPENWEATHER_URL, params={"lat": c["lat"], "lon": c["lon"], "appid": api_key, "units": config.units}, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+            data["_meta"] = {"requested_name": c.get("name"), "requested_lat": c["lat"], "requested_lon": c["lon"]}
+            out.append(data)
+            time.sleep(0.2)
+            default_name = f"{c['lat']},{c['lon']}"
+            log.info(f"Fetched weather for {c.get('name', default_name)}")
+        return out
 
 @op
 def transform_weather(_, raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    ts = datetime.now(timezone.utc).isoformat()
-    products = []
-    for w in raw:
-        main = w.get("main", {}); wind = w.get("wind", {}); sys = w.get("sys", {})
-        name = (w.get("_meta") or {}).get("requested_name") or w.get("name")
-        lat = (w.get("coord") or {}).get("lat"); lon = (w.get("coord") or {}).get("lon")
-        products.append({
-            "id": hashlib.sha1(f"{lat},{lon},{w.get('dt')}".encode()).hexdigest()[:16],
-            "collected_at": ts, "location_name": name, "lat": lat, "lon": lon,
-            "temp": main.get("temp"), "feels_like": main.get("feels_like"),
-            "humidity": main.get("humidity"), "pressure": main.get("pressure"),
-            "wind_speed": wind.get("speed"), "wind_deg": wind.get("deg"),
-            "weather": (w.get("weather") or [{}])[0].get("description"),
-            "sunrise": sys.get("sunrise"), "sunset": sys.get("sunset"),
-            "source": "openweathermap_current",
-        })
-    return products
+    with StepMetricsContext(job_name="weather_product_job", step_name="transform_weather"):
+        ts = datetime.now(timezone.utc).isoformat()
+        products = []
+        for w in raw:
+            main = w.get("main", {}); wind = w.get("wind", {}); sys = w.get("sys", {})
+            name = (w.get("_meta") or {}).get("requested_name") or w.get("name")
+            lat = (w.get("coord") or {}).get("lat"); lon = (w.get("coord") or {}).get("lon")
+            products.append({
+                "id": hashlib.sha1(f"{lat},{lon},{w.get('dt')}".encode()).hexdigest()[:16],
+                "collected_at": ts, "location_name": name, "lat": lat, "lon": lon,
+                "temp": main.get("temp"), "feels_like": main.get("feels_like"),
+                "humidity": main.get("humidity"), "pressure": main.get("pressure"),
+                "wind_speed": wind.get("speed"), "wind_deg": wind.get("deg"),
+                "weather": (w.get("weather") or [{}])[0].get("description"),
+                "sunrise": sys.get("sunrise"), "sunset": sys.get("sunset"),
+                "source": "openweathermap_current",
+            })
+        return products
 
 @op
 def upload_to_s3(_, config: S3Config, products: List[Dict[str, Any]]) -> str:
-    if not products: return ""
-    s3 = boto3.client("s3")
-    now = datetime.utcnow()
-    key = f"{config.prefix}{now:%Y/%m/%d}/{now:%H%M%S}.jsonl"
-    body = "\n".join(json.dumps(p, separators=(",", ":"), sort_keys=True) for p in products)
-    s3.put_object(Bucket=config.bucket, Key=key, Body=body.encode("utf-8"), ContentType="application/json")
-    return f"s3://{config.bucket}/{key}"
+    with StepMetricsContext(job_name="weather_product_job", step_name="upload_to_s3"):
+        if not products: return ""
+        s3 = boto3.client("s3")
+        now = datetime.utcnow()
+        key = f"{config.prefix}{now:%Y/%m/%d}/{now:%H%M%S}.jsonl"
+        body = "\n".join(json.dumps(p, separators=(",", ":"), sort_keys=True) for p in products)
+        s3.put_object(Bucket=config.bucket, Key=key, Body=body.encode("utf-8"), ContentType="application/json")
+        return f"s3://{config.bucket}/{key}"
 
-@job
+@job(hooks={job_success_hook, job_failure_hook})
 def weather_product_job():
     upload_to_s3(transform_weather(fetch_weather()))
 

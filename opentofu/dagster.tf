@@ -56,7 +56,7 @@ resource "helm_release" "dagster" {
             image = {
               repository = var.dagster_image_repository
               tag        = var.dagster_image_tag
-              pullPolicy = "IfNotPresent"
+              pullPolicy = "Always"
             }
 
             # Specify the correct module path for Dagster code location
@@ -66,6 +66,15 @@ resource "helm_release" "dagster" {
 
             port = 3030
 
+            # Additional ports for the container
+            ports = [
+              {
+                name          = "metrics"
+                containerPort = 9090
+                protocol      = "TCP"
+              }
+            ]
+
             env = [
               # Vault configuration will be loaded from /secrets/.env by the app
             ]
@@ -73,6 +82,13 @@ resource "helm_release" "dagster" {
             # Vault Agent init container configuration
             includeConfigInLaunchedRuns = {
               enabled = true
+            }
+
+            # Prometheus annotations for metrics scraping
+            annotations = {
+              "prometheus.io/scrape" = "true"
+              "prometheus.io/port"   = "9090"
+              "prometheus.io/path"   = "/metrics"
             }
 
             volumes = [
@@ -186,7 +202,20 @@ resource "helm_release" "dagster" {
               podSpecConfig = {
                 serviceAccountName = "dagster"
               }
-              # Automatically clean up completed job pods after 1 hour (3600 seconds)
+              # Container configuration for job run pods
+              containerConfig = {
+                resources = {
+                  requests = {
+                    cpu    = "100m"
+                    memory = "256Mi"
+                  }
+                  limits = {
+                    cpu    = "1000m"
+                    memory = "1Gi"
+                  }
+                }
+              }
+              #  Automatically clean up completed job pods after 1 hour (3600 seconds)
               jobSpecConfig = {
                 ttlSecondsAfterFinished = 3600
               }
@@ -199,6 +228,7 @@ resource "helm_release" "dagster" {
       dagit = {
         enabled = true
       }
+
       dagsterDaemon = {
         enabled = true
       }
