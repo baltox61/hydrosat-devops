@@ -1,0 +1,149 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dagster-weather-pipeline-alerts
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    release: kps
+spec:
+  groups:
+    - name: dagster-weather-pipeline
+      interval: 30s
+      rules:
+        # Alert when a Dagster job fails
+        - alert: DagsterJobFailed
+          expr: increase(dagster_job_failure_total[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+            component: dagster
+          annotations:
+            summary: "Dagster job has failed"
+            description: "A Dagster job has failed in the last 5 minutes. Job: {{ $labels.job_name }}. Check Dagit UI for details."
+            runbook_url: "https://docs.dagster.io/deployment/guides/kubernetes/troubleshooting"
+
+        # Alert when Dagster daemon is down
+        - alert: DagsterDaemonDown
+          expr: up{job="dagster-daemon"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: dagster
+          annotations:
+            summary: "Dagster daemon is down"
+            description: "The Dagster daemon has been down for more than 5 minutes. Scheduled jobs will not run."
+
+        # Alert when weather pipeline hasn't run successfully recently
+        - alert: WeatherPipelineStale
+          expr: time() - dagster_job_success_timestamp{job_name="weather_product_job"} > 7200
+          for: 10m
+          labels:
+            severity: warning
+            component: dagster
+          annotations:
+            summary: "Weather pipeline data is stale"
+            description: "The weather_product_job hasn't completed successfully in the last 2 hours. Expected to run hourly."
+
+        # Alert on high job failure rate
+        - alert: DagsterHighFailureRate
+          expr: (rate(dagster_job_failure_total[1h]) / rate(dagster_job_total[1h])) > 0.5
+          for: 15m
+          labels:
+            severity: warning
+            component: dagster
+          annotations:
+            summary: "High Dagster job failure rate"
+            description: "More than 50% of Dagster jobs are failing in the last hour."
+
+        # Alert when Dagster webserver is down
+        - alert: DagsterWebserverDown
+          expr: up{component="dagster-webserver"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: dagster
+          annotations:
+            summary: "Dagster webserver is down"
+            description: "The Dagster webserver (Dagit UI) has been down for more than 5 minutes."
+
+        # Alert on slow job execution
+        - alert: DagsterJobSlow
+          expr: dagster_run_duration_seconds{job_name="weather_product_job"} > 180
+          for: 5m
+          labels:
+            severity: info
+            component: dagster
+          annotations:
+            summary: "Dagster job running slowly"
+            description: "The weather_product_job is taking longer than 3 minutes to complete."
+
+        # Alert when S3 uploads are failing
+        - alert: S3UploadFailures
+          expr: increase(dagster_step_failure_total{step_name="upload_to_s3"}[10m]) > 0
+          for: 2m
+          labels:
+            severity: critical
+            component: dagster
+          annotations:
+            summary: "S3 upload step is failing"
+            description: "The upload_to_s3 step has failed. Check IRSA permissions and S3 bucket access."
+
+        # Alert on high memory usage in data namespace
+        - alert: DagsterHighMemoryUsage
+          expr: |
+            (sum(container_memory_working_set_bytes{namespace="data"}) by (pod)
+            / sum(container_spec_memory_limit_bytes{namespace="data"}) by (pod)) > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: dagster
+          annotations:
+            summary: "Dagster pod using high memory"
+            description: "Pod {{ $labels.pod }} is using more than 90% of its memory limit."
+
+        # Alert on pod restarts
+        - alert: DagsterPodRestarting
+          expr: rate(kube_pod_container_status_restarts_total{namespace="data"}[1h]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: dagster
+          annotations:
+            summary: "Dagster pod is restarting"
+            description: "Pod {{ $labels.pod }} in namespace data has restarted {{ $value }} times in the last hour."
+
+        # Alert on Vault authentication failures
+        - alert: VaultAuthenticationFailure
+          expr: increase(container_status_count{namespace="data",status="Error",reason="StartError"}[10m]) > 0
+          for: 2m
+          labels:
+            severity: critical
+            component: vault
+          annotations:
+            summary: "Vault authentication failures detected"
+            description: "Containers are failing to start, possibly due to Vault authentication issues."
+
+        # Demo job specific alerts
+        - alert: DemoJobFailed
+          expr: increase(dagster_job_failure_total{job_name="demo_flaky_job"}[10m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+            component: dagster
+            demo: "true"
+          annotations:
+            summary: "Demo flaky job has failed"
+            description: "The demo_flaky_job has failed. This is expected behavior (50% failure rate) to demonstrate alerting capabilities."
+            runbook_url: "https://github.com/your-org/hydrosat-devops/blob/main/monitoring/README.md#demo-job"
+
+        - alert: DemoJobHighFailureRate
+          expr: (rate(dagster_job_failure_total{job_name="demo_flaky_job"}[1h]) / rate(dagster_job_total{job_name="demo_flaky_job"}[1h])) > 0.6
+          for: 5m
+          labels:
+            severity: info
+            component: dagster
+            demo: "true"
+          annotations:
+            summary: "Demo job failure rate higher than expected"
+            description: "Demo job failure rate is {{ $value | humanizePercentage }}. Expected ~50%. This shows the alerting system is working correctly."

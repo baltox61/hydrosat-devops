@@ -1,0 +1,29 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: dagster-metrics
+  namespace: monitoring
+  labels:
+    release: kps  # Required for Prometheus to discover this PodMonitor
+spec:
+  # Select pods in the 'data' namespace with Dagster deployment
+  namespaceSelector:
+    matchNames:
+      - data
+  selector:
+    matchExpressions:
+      - key: deployment
+        operator: Exists
+      - key: app.kubernetes.io/instance
+        operator: In
+        values: [dagster]
+  # Scrape configuration
+  podMetricsEndpoints:
+    - port: metrics  # Named port reference (9090)
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      # Add relabeling to add component label for dashboard queries
+      relabelings:
+        - targetLabel: component
+          replacement: user-deployments

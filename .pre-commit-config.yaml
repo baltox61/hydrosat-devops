@@ -1,0 +1,11 @@
+repos:
+  - repo: local
+    hooks:
+      - id: audit-checker
+        name: Run OpenTofu audit checks (fmt, validate, tflint, tfsec, checkov)
+        entry: ./audit/auditchecker.sh
+        language: system
+        pass_filenames: false
+        files: \.(tf|tfvars)$
+        stages: [commit]
+        verbose: true

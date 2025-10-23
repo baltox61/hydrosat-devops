@@ -1,0 +1,5 @@
+dagster>=1.11,<2.0
+boto3>=1.34
+requests>=2.32
+fastapi>=0.111
+uvicorn>=0.30
